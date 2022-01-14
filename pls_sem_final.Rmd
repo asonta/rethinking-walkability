@@ -1,0 +1,91 @@
+---
+title: "Walkable Urban Design and Social Cohesion Modeling with PLS-SEM"
+author: "Andrew Sonta"
+date: "1/14/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load in libraries and clean dataset
+```{r}
+library(seminr)
+library(boot)
+library(ggplot2)
+library(GGally)
+sem_data = read.csv('sem_data.csv')
+```
+
+## Structural Equation Modeling with Partial Least Squares
+Using ```SEMinR``` package
+```{r}
+sem_data$City <- NULL
+
+# Measurement Model
+measurements <- constructs(
+  composite('Diversity',        c('Emp_Entropy','Emp_HH_Entropy'), weights=mode_B),
+  composite('Physical_Density', c('Intersection_Density','Path_Density'), weights=mode_B),
+  composite('Social_Density',   c('Pop_Density','Emp_Density'), weights=mode_B),
+  composite('Connectedness',    c('Transit_Proximity','Transit_Service'), weights=mode_B),
+  reflective('EducationL',      single_item('Education')),
+  reflective('AgeL',            single_item('Age')),
+  reflective('IncomeL',         single_item('Income')),
+  reflective('RaceL',           single_item('White')),
+  reflective('SexL',            single_item('Sex')),
+  reflective('Cohesion',        c('Close_Knit','Known_Neighs','Trust','Will_Help')),
+  interaction_term(iv='Physical_Density', moderator='Diversity', weights=mode_B))
+
+# Structural Model
+structure <- relationships(
+  paths(from=c('Diversity','Physical_Density','Social_Density','Connectedness',
+               'EducationL','AgeL','IncomeL','RaceL','SexL',
+               'Physical_Density*Diversity'),
+        to='Cohesion')
+)
+
+# Fit and summarize model
+pls_model <- estimate_pls(data=sem_data,
+                          measurement_model=measurements,
+                          structural_model=structure)
+model_summary <- summary(pls_model)
+model_summary
+```
+
+## Bootstrap and summarize bootstrapped model
+```{r}
+bootpls <- bootstrap_model(seminr_model = pls_model, nboot = 1000)
+boot_summary <- summary(bootpls)
+boot_summary
+```
+
+## Printing model validity measures
+```{r}
+model_summary$validity$vif_items
+model_summary$vif_antecedents
+```
+
+## Plotting physical density and land use diversity factor scores
+```{r}
+scores = data.frame(pls_model$construct_scores)
+scores['Log_Physical_Density'] = log(scores$Physical_Density-min(scores$Physical_Density)+1)
+scores['Log_Social_Density'] = log(scores$Social_Density-min(scores$Social_Density)+1)
+dat <- scores[,c("Log_Physical_Density", "Diversity", "Cohesion")]  # Example data
+
+# Plotting style
+ggplot2::theme_set(ggplot2::theme_minimal())
+
+# Scatterplot customization
+lowerfun <- function(data, mapping) {
+  ggplot(data = data, mapping = mapping)+
+    geom_point(alpha = .05, size=0.2) +
+    geom_smooth(method = "loess", formula = y ~ x,
+                fill = "darkblue", color = "darkblue", size = 0.5)
+}
+
+# Scatterplot matrix
+ggpairs(data=dat, lower = list(continuous = wrap(lowerfun)), upper=list(continuous='blank'),
+        axisLabels = "show")
+```
+
