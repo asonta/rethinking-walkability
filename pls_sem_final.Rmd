@@ -1,7 +1,7 @@
 ---
 title: "Walkable Urban Design and Social Cohesion Modeling with PLS-SEM"
 author: "Andrew Sonta"
-date: "1/14/2022"
+date: "03/08/2023"
 output: html_document
 ---
 
@@ -21,9 +21,9 @@ sem_data = read.csv('sem_data.csv')
 ## Structural Equation Modeling with Partial Least Squares
 Using ```SEMinR``` package
 ```{r}
-sem_data$City <- NULL
-
 # Measurement Model
+# Note: the interaction term can be included or discarded depending on the specific
+# analysis being done
 measurements <- constructs(
   composite('Diversity',        c('Emp_Entropy','Emp_HH_Entropy'), weights=mode_B),
   composite('Physical_Density', c('Intersection_Density','Path_Density'), weights=mode_B),
@@ -34,19 +34,23 @@ measurements <- constructs(
   reflective('IncomeL',         single_item('Income')),
   reflective('RaceL',           single_item('White')),
   reflective('SexL',            single_item('Sex')),
-  reflective('Cohesion',        c('Close_Knit','Known_Neighs','Trust','Will_Help')),
-  interaction_term(iv='Physical_Density', moderator='Diversity', weights=mode_B))
+  reflective('Cohesion',        c('Close_Knit','Known_Neighs','Trust','Will_Help')))#,
+  #interaction_term(iv='Physical_Density', moderator='Diversity', weights=mode_B))
 
 # Structural Model
+# Note: the interaction term can be included or discarded depending on the specific
+# analysis being done
 structure <- relationships(
   paths(from=c('Diversity','Physical_Density','Social_Density','Connectedness',
-               'EducationL','AgeL','IncomeL','RaceL','SexL',
-               'Physical_Density*Diversity'),
+               'EducationL','AgeL','IncomeL','RaceL','SexL'),
+               #'Physical_Density*Diversity'),
         to='Cohesion')
 )
 
 # Fit and summarize model
-pls_model <- estimate_pls(data=sem_data,
+# Note the results reported in the paper are from the bootstrapped analysis, not
+# this single run
+pls_model <- estimate_pls(data=subset(sem_data),
                           measurement_model=measurements,
                           structural_model=structure)
 model_summary <- summary(pls_model)
@@ -55,6 +59,8 @@ model_summary
 
 ## Bootstrap and summarize bootstrapped model
 ```{r}
+# Note the bootstrapped means are stochastic and your run may differ from the results
+# presented in the paper
 bootpls <- bootstrap_model(seminr_model = pls_model, nboot = 1000)
 boot_summary <- summary(bootpls)
 boot_summary
@@ -68,24 +74,95 @@ model_summary$vif_antecedents
 
 ## Plotting physical density and land use diversity factor scores
 ```{r}
+library(ggExtra)
+library(grid)
+library(gridExtra)
+
+pls_model <- estimate_pls(subset(sem_data),#, City=="LA"),
+                          measurement_model=measurements,
+                          structural_model=structure)
 scores = data.frame(pls_model$construct_scores)
-scores['Log_Physical_Density'] = log(scores$Physical_Density-min(scores$Physical_Density)+1)
+scores['Log_Physical_Density'] = log10(scores$Physical_Density-min(scores$Physical_Density)+1)
 scores['Log_Social_Density'] = log(scores$Social_Density-min(scores$Social_Density)+1)
 dat <- scores[,c("Log_Physical_Density", "Diversity", "Cohesion")]  # Example data
 
-# Plotting style
-ggplot2::theme_set(ggplot2::theme_minimal())
+ggplot2::theme_set(ggplot2::theme_classic())
 
-# Scatterplot customization
-lowerfun <- function(data, mapping) {
-  ggplot(data = data, mapping = mapping)+
-    geom_point(alpha = .05, size=0.2) +
-    geom_smooth(method = "loess", formula = y ~ x,
-                fill = "darkblue", color = "darkblue", size = 0.5)
-}
+span=0.80
+ 
+g1 <- ggplot(dat, aes(x=Log_Physical_Density, y=Diversity)) +
+      geom_point(alpha=0.01, stroke=0, size=2) +
+      geom_smooth(method = "loess", formula = y ~ x, span=span,
+                  fill = "darkorange", color = "darkred", linewidth = 0.5) +
+      theme(legend.position="none", plot.margin = margin(0,0,0,2,unit="in")) +
+      xlab('Log(Physical Density)' )
+      
+p1 <- ggMarginal(g1, type="density", color="white", fill="lightgray")
 
-# Scatterplot matrix
-ggpairs(data=dat, lower = list(continuous = wrap(lowerfun)), upper=list(continuous='blank'),
-        axisLabels = "show")
+g2 <- ggplot(dat, aes(x=Diversity, y=Cohesion)) +
+      geom_point(alpha=0.01, stroke=0, size=2, position="jitter") +
+      geom_smooth(method = "loess", formula = y ~ x, span=span,
+                  fill = "darkblue", color = "darkblue", linewidth = 0.5) +
+      theme(legend.position="none")
+
+p2 <- ggMarginal(g2, type="density", margins="x", color="white", fill="lightgray")
+
+g3 <- ggplot(dat, aes(x=Log_Physical_Density, y=Cohesion)) +
+      geom_point(alpha=0.01, stroke=0, size=2, position="jitter") +
+      geom_smooth(method = "loess", formula = y ~ x, span=span,
+                  fill = "darkblue", color = "darkblue", linewidth = 0.5) +
+      theme(legend.position="none") +
+      xlab('Log(Physical Density)')
+
+p3 <- ggMarginal(g3, type="density", color="white", fill="lightgray")
+
+gf = arrangeGrob(p2, p3, zeroGrob(), p1, nrow = 1, widths=c(4,4,1,4))
+ggsave(file="pairwise.pdf", plot=gf, width=6.5, height=2, dpi=300, scale = 1.5)
+grid.newpage()
+grid.draw(gf)
 ```
 
+## Mult-group analysis for each city
+```{r}
+library(tidyr)
+cities <- c("Baltimore","Boston","LA","Orlando","Phoenix","Twin_Cities")
+mga_df <- data.frame()
+
+for (city in cities) {
+  mga <- estimate_pls_mga(pls_model, sem_data$City==city)
+  mga$City <- city
+  mga_df <- rbind(mga_df, mga)
+}
+
+library(tidyr)
+mga_df <- subset(mga_df, select=c(source, group1_beta_mean, group2_beta_mean, pls_mga_p, City))
+mga_tidied <- mga_df %>% pivot_longer(cols=c("group1_beta_mean","group2_beta_mean"),
+                                      names_to="group", values_to="beta")
+mga_tidied <- subset(mga_tidied, source %in% c("Diversity","Physical_Density","Social_Density","Connectedness"))
+g1 <- subset(mga_tidied, group=="group1_beta_mean")
+g2 <- subset(mga_tidied, group=="group2_beta_mean")
+source_names <- as_labeller(
+     c("Diversity" = "Diversity", "Physical_Density" = "Physical Density", 
+       "Social_Density" = "Social Density", "Connectedness" = "Connectedness"))
+text <- data.frame(City="LA", beta = 0, lab = "*",
+                   source = factor("Physical_Density",
+                                levels =c("Diversity","Physical_Density","Social_Density","Connectedness")))
+
+ggplot(mga_tidied, aes(x=beta, y=City)) + 
+  geom_vline(xintercept=0, color="lightgray") +
+  geom_line(linewidth=1.5, color="gray60") +
+  geom_point(data=g2, aes(size=3, stroke=0)) +
+  geom_point(data=g1, aes(size=3, stroke=0, color=City)) + scale_color_brewer(palette = "Set2") +
+  facet_grid(~factor(source, levels=c("Diversity", "Physical_Density", "Social_Density", "Connectedness")), labeller = source_names) +
+  theme(
+    panel.spacing = unit(1.0, "lines"), strip.background = element_blank(),
+    axis.line = element_blank(), axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(), legend.position = "none",
+    panel.background = element_rect("gray95")
+  ) + 
+  xlab("Coefficient") + xlim(-0.165, 0.165) +
+  scale_y_discrete(labels = ~ gsub("_", " ", .x), limits=rev) +
+  coord_cartesian(clip = "off") +
+  geom_text(data = text, label="*", nudge_y = 0.05, nudge_x=0.006, size=8, color="darkred")
+ggsave(file="cities.pdf", width=4.5, height=2, dpi=300, scale = 1.5)
+```
