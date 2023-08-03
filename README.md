@@ -2,7 +2,7 @@
 Code for "Rethinking Walkability" paper
 
 ## Where to access data
-Before running any of the code in the Python or R files, first download the relevant datasets from the following sites and place them in a "data" folder in the project directory. Pleas make sure the downloaded file names match the file names used in the Python scripts.
+Before running any of the code in the Python or R files, first download the relevant datasets from the following sites and place them in a "data" folder in the project directory. When running the Python notebook, please make sure the downloaded file names match the file names used in the Python code.
 - [EPA Smart Location Database](https://www.epa.gov/smartgrowth/smart-location-mapping)
 - [Baltimore Ecosystem Study Houshold Telephone Survey](https://portal.edirepository.org/nis/mapbrowse?packageid=knb-lter-bes.4000.180)
 
